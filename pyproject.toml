@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cloud-forensic-snapshot"
+version = "0.1.0"
+description = "Vendor-neutral cloud forensics acquisition tool for AWS, Azure, and GCP"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Cloud Forensic Snapshot Contributors" }
+]
+keywords = [
+    "forensics",
+    "dfir",
+    "cloud",
+    "aws",
+    "azure",
+    "gcp",
+    "incident-response",
+    "evidence",
+    "security"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: System :: Systems Administration",
+]
+
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+    "boto3>=1.34",
+    "azure-identity>=1.15",
+    "azure-mgmt-monitor>=6.0",
+    "azure-mgmt-resource>=23.0",
+    "azure-mgmt-storage>=21.0",
+    "google-cloud-logging>=3.9",
+    "google-cloud-storage>=2.14",
+    "google-cloud-compute>=1.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.0",
+    "moto>=4.0",  # AWS mocking
+]
+
+[project.scripts]
+cfs = "cfs.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/cloud-forensic-snapshot"
+Documentation = "https://github.com/YOUR_USERNAME/cloud-forensic-snapshot#readme"
+Repository = "https://github.com/YOUR_USERNAME/cloud-forensic-snapshot.git"
+Issues = "https://github.com/YOUR_USERNAME/cloud-forensic-snapshot/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cfs"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=cfs --cov-report=term-missing"
