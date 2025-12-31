@@ -41,6 +41,32 @@
 - **Dry-Run Mode**: Simulate acquisition without touching anything
 - **YAML Configuration**: Reproducible, auditable collection parameters
 - **Execution Audit Log**: Complete record of tool operations
+- **Parallel Collection**: High-speed, concurrent artifact acquisition across regions
+
+---
+
+## Production Readiness
+
+CFS v1.0 is engineered for enterprise-grade incident response.
+
+### Resilience & Reliability
+- **Exponential Backoff**: Automatic retries for transient API errors (AWS throttling, Azure 503s).
+- **Parallel Execution**: Uses threaded collectors to minimize acquisition windows.
+- **Fault Tolerance**: Partial failures are isolated; one failed collector does not stop the snapshot.
+
+### Forensic Validation (v1.0 verified)
+- **Manifest Integrity**: SHA-256 hashes generated stream-side for all artifacts.
+- **Chain of Custody**: Automated generation of `chain_of_custody.txt` with investigator metadata.
+- **Immutability Checks**: Proactive warnings for unsealed cloud storage buckets.
+
+### Live Validation Results
+*Tested against Google Cloud Platform (2025-12-31)*
+```
+✓ Auth: Validated via Application Default Credentials
+✓ Collection: Audit Logs, IAM Policy, VPC Networks, Compute Instances
+✓ Integrity: Manifest generated with 4 artifacts (partial trace)
+✓ Timing: Artifacts timestamped in UTC
+```
 
 ---
 
@@ -88,23 +114,33 @@ CFS delegates authentication to your existing cloud CLI tools. This is intention
 | **Audit Trail** | All access logged via native cloud audit mechanisms |
 | **Enterprise Ready** | Works with SSO, MFA, assumed roles |
 
-### Supported Authentication Modes
+### Quick Setup Guide
+Before running CFS, ensure you are authenticated with your target cloud provider.
 
-**AWS**
-- AWS CLI configured profiles (`~/.aws/credentials`)
-- Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
-- IAM instance profiles (EC2)
-- Assumed roles via STS
+#### 1. AWS
+Install [AWS CLI](https://aws.amazon.com/cli/) and run:
+```bash
+aws configure
+# Enter Access Key, Secret Key, Region, and Output format (json)
+```
+*Verify:* `aws sts get-caller-identity`
 
-**Azure**
-- Azure CLI (`az login`)
-- Service Principal with environment variables
-- Managed Identity
+#### 2. Azure
+Install [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and run:
+```bash
+az login
+# Browser window will open to authenticate
+```
+*Verify:* `az account show`
 
-**GCP**
-- gcloud CLI (`gcloud auth login`)
-- Application Default Credentials
-- Service Account key files
+#### 3. GCP
+Install [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) and run:
+```bash
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
+gcloud auth application-default login
+```
+*Verify:* `gcloud auth list`
 
 ---
 
@@ -273,11 +309,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Roadmap
 
-- [ ] v0.1: AWS collector + CLI + evidence preservation
-- [ ] v0.2: Azure collector
-- [ ] v0.3: GCP collector
-- [ ] v0.4: Multi-cloud correlation support
-- [ ] v1.0: Production hardening
+- [x] v0.1: AWS collector + CLI + evidence preservation
+- [x] v0.2: Azure collector
+- [x] v0.3: GCP collector
+- [x] v0.4: Multi-cloud correlation support
+- [x] v1.0: Production hardening (Resilience, Concurrency, Audit)
 
 ---
 

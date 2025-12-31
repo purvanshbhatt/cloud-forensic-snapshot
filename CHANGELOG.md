@@ -5,6 +5,24 @@ All notable changes to the **Cloud Forensic Snapshot** project will be documente
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2025-12-31
+
+### Production Readiness
+- **Production Hardened**: Full resilience, concurrency, and audit logging for enterprise-scale deployments.
+- **Strict Separation**: Verified architectural isolation between preservation (CFS) and analysis (Private MCP), ensuring forensic purity.
+- **Forensic Integrity**: Validated manifest generation, SHA-256 hashing, and Chain of Custody compliance.
+
+### Added
+- **Resilience**: Implemented `@with_retry` decorator with exponential backoff for all cloud API calls (AWS, Azure, GCP).
+- **Concurrency**: Parallelized evidence collection using `ThreadPoolExecutor` for high-throughput acquisition.
+- **Audit Logging**: Added full-fidelity `execution.log` capturing every CLI action and API result.
+- **Packaging**: Standardized distribution with `MANIFEST.in` and strict dependency management.
+- **Testing**: Comprehensive `pytest` suite with `moto` mocks and live smoke test verification.
+
+### Changed
+- **CLI**: Improved authentication guidance and error reporting for missing credentials.
+- **Dependencies**: Added `google-cloud-functions` and production-grade version pinning.
+
 ## [0.2.0] - 2025-12-30
 
 ### Added
