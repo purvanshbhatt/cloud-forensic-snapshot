@@ -307,15 +307,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-## Roadmap
-
-- [x] v0.1: AWS collector + CLI + evidence preservation
-- [x] v0.2: Azure collector
-- [x] v0.3: GCP collector
-- [x] v0.4: Multi-cloud correlation support
-- [x] v1.0: Production hardening (Resilience, Concurrency, Audit)
-
----
 
 <p align="center">
   <i>Built for incident responders who understand that in the cloud, logs are the only truth that survives.</i>
