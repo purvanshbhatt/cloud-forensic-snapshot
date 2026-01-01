@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include pyproject.toml
+recursive-include cfs *.py
+recursive-include cfs values.yaml
+global-exclude *.py[cod]
+global-exclude __pycache__
+global-exclude *.so

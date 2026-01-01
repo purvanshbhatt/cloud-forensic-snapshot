@@ -13,6 +13,7 @@ from google.cloud.logging_v2.entries import StructEntry, ProtobufEntry
 from cfs.collectors.base import BaseCollector, CollectorResult, CollectorRegistry, PermissionCheck
 from cfs.preservation.hashing import compute_sha256
 from cfs.types import Artifact, TimeWindow
+from cfs.utils import with_retry
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ class GCPLogCollector(BaseCollector):
              checks.append(PermissionCheck("logging.entries.list", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
@@ -198,6 +200,7 @@ class GCPIAMCollector(BaseCollector):
             checks.append(PermissionCheck("resourcemanager.projects.getIamPolicy", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
@@ -257,6 +260,7 @@ class GCPNetworkCollector(BaseCollector):
             checks.append(PermissionCheck("compute.networks.list", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:

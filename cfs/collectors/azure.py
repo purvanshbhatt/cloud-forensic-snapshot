@@ -15,6 +15,7 @@ from azure.mgmt.resource import ResourceManagementClient
 from cfs.collectors.base import BaseCollector, CollectorResult, CollectorRegistry, PermissionCheck
 from cfs.preservation.hashing import compute_sha256
 from cfs.types import Artifact, TimeWindow
+from cfs.utils import with_retry
 
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class AzureActivityLogCollector(BaseCollector):
              checks.append(PermissionCheck("Microsoft.Insights/activityLog/read", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
@@ -106,6 +108,7 @@ class AzureNetworkCollector(BaseCollector):
             checks.append(PermissionCheck("Microsoft.Network/networkSecurityGroups/read", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
@@ -161,6 +164,7 @@ class AzureComputeCollector(BaseCollector):
             checks.append(PermissionCheck("Microsoft.Compute/virtualMachines/read", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
@@ -212,6 +216,7 @@ class AzureADCollector(BaseCollector):
         checks.append(PermissionCheck("Microsoft.Graph/AuditLog.Read.All", True, message="Assumed via permissions"))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         # Note: Direct AD log collection often requires Graph API which is separate from Mgmt SDKs.
         # Here we placeholder for Graph integration or Monitor Diagnostic query.

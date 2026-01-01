@@ -6,7 +6,7 @@ import socket
 from datetime import datetime
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
 import click
 from rich.console import Console
@@ -24,14 +24,35 @@ from cfs.preservation import check_immutability, format_immutability_warning
 console = Console()
 
 
-def setup_logging(verbose: bool) -> None:
-    """Configure logging with Rich handler."""
+def setup_logging(verbose: bool, log_path: Optional[Path] = None) -> None:
+    """Configure logging with Rich handler and optional file handler."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(message)s",
-        handlers=[RichHandler(console=console, rich_tracebacks=True)],
-    )
+    handlers: list[logging.Handler] = [RichHandler(console=console, rich_tracebacks=True, markup=True)]
+    
+    if log_path:
+        # Ensure directory exists
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        ))
+        handlers.append(file_handler)
+
+    # Force reconfiguration to add file handler if called multiple times (though usually once)
+    # logging.basicConfig only works once. We need to clear handlers or use specialized setup.
+    # For CLI, basicConfig is usually fine if called once.
+    # If we want to ADD a handler later, we can do that on the root logger.
+    
+    # If basicConfig was already called, retrieving root logger and adding handler is better.
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    
+    # Remove existing handlers to avoid duplicates if re-setup
+    if root_logger.handlers:
+        root_logger.handlers.clear()
+        
+    for handler in handlers:
+        root_logger.addHandler(handler)
 
 
 @click.group()
@@ -117,7 +138,15 @@ def snapshot(
         # Collect last 7 days with verbose logging
         cfs snapshot -p aws -a 123456789012 -t 7d -v
     """
-    setup_logging(verbose)
+    # Defer logging setup slightly until we have output path if possible, 
+    # but we need logging for config loading?
+    # Actually, failure to load config usually prints to console.
+    # Let's setup basic logging first, then add file handler?
+    # Or just pass the output path.
+    
+    output_path = Path(output)
+    setup_logging(verbose, output_path / "execution.log")
+    
     logger = logging.getLogger(__name__)
     
     # Print banner
@@ -277,9 +306,18 @@ def _run_collection(
         Tuple of (Updated EvidenceBundle, List of error messages)
     """
     from cfs.collectors.base import CollectorRegistry
+    import concurrent.futures
     
     all_errors = []
     
+    # Ensure collectors are registered by importing the module
+    if cfg.provider.value == "aws":
+        import cfs.collectors.aws
+    elif cfg.provider.value == "azure":
+        import cfs.collectors.azure
+    elif cfg.provider.value == "gcp":
+        import cfs.collectors.gcp
+
     # Get collectors for this provider
     collectors = CollectorRegistry.get_collectors(cfg.provider.value)
     
@@ -287,47 +325,68 @@ def _run_collection(
         console.print(f"[yellow]No collectors registered for {cfg.provider.value}[/yellow]")
         return bundle, ["No collectors registered"]
     
+    def _execute_collector(name: str, collector_cls: type, config) -> tuple[str, Any]:
+        """Helper to run a single collector safely."""
+        try:
+            from cfs.types import CollectorConfig
+            # Instantiate collector
+            collector = collector_cls(
+                scope=scope,
+                config=config or CollectorConfig(),
+                output_dir=output_path / "provider",
+                dry_run=cfg.dry_run,
+            )
+            # Run collection
+            return name, collector.collect(timeframe)
+        except Exception as e:
+            return name, e
+
+    # Prepare tasks
+    active_collectors = []
     for name, collector_class in collectors.items():
         collector_config = cfg.collectors.get(name)
         if collector_config and not collector_config.enabled:
             console.print(f"[dim]Skipping {name} (disabled)[/dim]")
             continue
+        active_collectors.append((name, collector_class, collector_config))
+
+    console.print(f"  Running {len(active_collectors)} collectors in parallel...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit all tasks
+        future_to_name = {
+            executor.submit(_execute_collector, name, cls, cfg): name 
+            for name, cls, cfg in active_collectors
+        }
         
-        console.print(f"  Collecting: [cyan]{name}[/cyan]...")
-        
-        try:
-            from cfs.types import CollectorConfig
-            collector = collector_class(
-                scope=scope,
-                config=collector_config or CollectorConfig(),
-                output_dir=output_path / "provider",
-                dry_run=cfg.dry_run,
-            )
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(future_to_name):
+            name, result = future.result()
             
-            result = collector.collect(timeframe)
+            if isinstance(result, Exception):
+                error_msg = f"{name}: Unexpected error: {result}"
+                console.print(f"    [red]✗[/red] {name}: Failed ({result})")
+                all_errors.append(error_msg)
+                continue
             
+            # Result is CollectorResult
             if result.success:
                 bundle.artifacts.extend(result.artifacts)
-                console.print(f"    [green]✓[/green] Collected {result.artifact_count} artifacts")
+                console.print(f"    [green]✓[/green] {name}: Collected {result.artifact_count} artifacts")
             else:
                 for error in result.errors:
-                    console.print(f"    [red]✗[/red] {error}")
+                    console.print(f"    [red]✗[/red] {name}: {error}")
                     all_errors.append(f"{name}: {error}")
             
-            # Even on success, collectors might have partial errors
+            # Warnings
+            for warning in result.warnings:
+                console.print(f"    [yellow]⚠[/yellow] {name}: {warning}")
+            
+            # Partial errors
             if result.errors and result.success:
                  for error in result.errors:
                     all_errors.append(f"{name}: {error}")
 
-            for warning in result.warnings:
-                console.print(f"    [yellow]⚠[/yellow] {warning}")
-                
-        except Exception as e:
-            error_msg = f"{name}: Unexpected error: {e}"
-            console.print(f"    [red]✗[/red] {error_msg}")
-            all_errors.append(error_msg)
-            # Continue to next collector - do not abort entire run
-    
     return bundle, all_errors
 
 

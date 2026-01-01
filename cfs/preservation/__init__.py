@@ -3,7 +3,7 @@
 from cfs.preservation.hashing import compute_sha256, compute_sha256_stream, verify_hash
 from cfs.preservation.manifest import generate_manifest
 from cfs.preservation.chain_of_custody import generate_chain_of_custody
-from cfs.preservation.immutability import check_immutability, ImmutabilityStatus
+from cfs.preservation.immutability import check_immutability, ImmutabilityStatus, format_immutability_warning
 
 __all__ = [
     "compute_sha256",
@@ -13,4 +13,5 @@ __all__ = [
     "generate_chain_of_custody",
     "check_immutability",
     "ImmutabilityStatus",
+    "format_immutability_warning",
 ]

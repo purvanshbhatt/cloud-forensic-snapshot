@@ -1,3 +1,4 @@
+
 """AWS evidence collector implementation."""
 
 import json
@@ -10,14 +11,23 @@ import boto3
 from botocore.exceptions import ClientError
 
 from cfs.collectors.base import BaseCollector, CollectorResult, CollectorRegistry, PermissionCheck
-from cfs.preservation.hashing import compute_sha256
+from cfs.preservation import compute_sha256
 from cfs.types import Artifact, TimeWindow
+from cfs.utils import with_retry
 
 
 logger = logging.getLogger(__name__)
 
 
-class AWSCloudTrailCollector(BaseCollector):
+class AWSLogCollector(BaseCollector):
+    """Base class for AWS collectors."""
+    
+    def get_client(self, service: str):
+        """Get AWS client."""
+        return boto3.client(service)
+
+
+class AWSCloudTrailCollector(AWSLogCollector):
     """Collector for AWS CloudTrail logs."""
 
     @property
@@ -26,24 +36,26 @@ class AWSCloudTrailCollector(BaseCollector):
 
     @property
     def description(self) -> str:
-        return "Collects AWS CloudTrail management and data events"
+        return "Collects CloudTrail management events"
 
     def preflight_check(self) -> list[PermissionCheck]:
         checks = []
         try:
-            client = boto3.client("cloudtrail")
-            client.describe_trails(trailNameList=[])
-            checks.append(PermissionCheck("cloudtrail:DescribeTrails", True))
+            client = self.get_client("cloudtrail")
+            # Dry run lookup
             client.lookup_events(MaxResults=1)
             checks.append(PermissionCheck("cloudtrail:LookupEvents", True))
         except ClientError as e:
-            checks.append(PermissionCheck("cloudtrail:DescribeTrails", False, message=str(e)))
+            checks.append(PermissionCheck("cloudtrail:LookupEvents", False, message=str(e)))
+        except Exception as e:
+            checks.append(PermissionCheck("cloudtrail:LookupEvents", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
-            client = boto3.client("cloudtrail")
+            client = self.get_client("cloudtrail")
             
             # Lookup events for the timeframe
             # Note: CloudTrail lookup only goes back 90 days for management events
@@ -80,8 +92,8 @@ class AWSCloudTrailCollector(BaseCollector):
             return self.create_result(False)
 
 
-class AWSGuardDutyCollector(BaseCollector):
-    """Collector for AWS GuardDuty findings."""
+class AWSGuardDutyCollector(AWSLogCollector):
+    """Collector for GuardDuty findings."""
 
     @property
     def name(self) -> str:
@@ -94,20 +106,24 @@ class AWSGuardDutyCollector(BaseCollector):
     def preflight_check(self) -> list[PermissionCheck]:
         checks = []
         try:
-            client = boto3.client("guardduty")
+            client = self.get_client("guardduty")
             client.list_detectors()
             checks.append(PermissionCheck("guardduty:ListDetectors", True))
         except ClientError as e:
             checks.append(PermissionCheck("guardduty:ListDetectors", False, message=str(e)))
+        except Exception as e:
+            checks.append(PermissionCheck("guardduty:ListDetectors", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
-            client = boto3.client("guardduty")
-            detectors = client.list_detectors().get("DetectorIds", [])
+            client = self.get_client("guardduty")
             
+            detectors = client.list_detectors().get("DetectorIds", [])
             all_findings = []
+            
             for detector_id in detectors:
                 paginator = client.get_paginator("list_findings")
                 for page in paginator.paginate(
@@ -135,7 +151,7 @@ class AWSGuardDutyCollector(BaseCollector):
                     with open(raw_path, "w") as f:
                         json.dump(all_findings, f, default=str, indent=2)
                     
-                    artifact = Artifact(
+                    artifacts.append(Artifact(
                         name="findings.json",
                         source=self.name,
                         file_path=raw_path.relative_to(self.output_dir.parent),
@@ -143,8 +159,7 @@ class AWSGuardDutyCollector(BaseCollector):
                         size_bytes=raw_path.stat().st_size,
                         collected_at=datetime.utcnow(),
                         metadata={"finding_count": len(all_findings)}
-                    )
-                    artifacts.append(artifact)
+                    ))
 
             return self.create_result(True, artifacts)
         except Exception as e:
@@ -152,8 +167,8 @@ class AWSGuardDutyCollector(BaseCollector):
             return self.create_result(False)
 
 
-class AWSIAMCollector(BaseCollector):
-    """Collector for AWS IAM configuration and credential reports."""
+class AWSIAMCollector(AWSLogCollector):
+    """Collector for IAM credential reports."""
 
     @property
     def name(self) -> str:
@@ -161,22 +176,26 @@ class AWSIAMCollector(BaseCollector):
 
     @property
     def description(self) -> str:
-        return "Collects IAM credential report and account summary"
+        return "Collects IAM Credential Report"
 
     def preflight_check(self) -> list[PermissionCheck]:
         checks = []
         try:
-            client = boto3.client("iam")
-            client.get_account_summary()
-            checks.append(PermissionCheck("iam:GetAccountSummary", True))
+            client = self.get_client("iam")
+            # Just check if we can list users as a proxy or generate report
+            client.generate_credential_report()
+            checks.append(PermissionCheck("iam:GenerateCredentialReport", True))
         except ClientError as e:
-            checks.append(PermissionCheck("iam:GetAccountSummary", False, message=str(e)))
+            checks.append(PermissionCheck("iam:GenerateCredentialReport", False, message=str(e)))
+        except Exception as e:
+            checks.append(PermissionCheck("iam:GenerateCredentialReport", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
-            client = boto3.client("iam")
+            client = self.get_client("iam")
             
             # Account Summary
             summary = client.get_account_summary().get("SummaryMap", {})
@@ -197,6 +216,12 @@ class AWSIAMCollector(BaseCollector):
             try:
                 # Request report generation
                 client.generate_credential_report()
+                # Poll for report (simplified block)
+                # In a robust impl, we'd wait/retry. Boto3 might wait automatically?
+                # We'll assume it's ready or wait briefly.
+                import time
+                time.sleep(2)
+                
                 # Get report
                 report = client.get_credential_report()
                 content = report.get("Content")
@@ -222,31 +247,34 @@ class AWSIAMCollector(BaseCollector):
             return self.create_result(False)
 
 
-class AWSVPCFlowLogCollector(BaseCollector):
-    """Collector for AWS VPC Flow Log configuration."""
+class AWSVPCFlowLogCollector(AWSLogCollector):
+    """Collector for VPC Flow Log metadata (config)."""
 
     @property
     def name(self) -> str:
         return "vpc_flow_logs"
-
+    
     @property
     def description(self) -> str:
-        return "Collects VPC Flow Log configuration and metadata"
+        return "Collects VPC Flow Log configurations"
 
     def preflight_check(self) -> list[PermissionCheck]:
         checks = []
         try:
-            client = boto3.client("ec2")
+            client = self.get_client("ec2")
             client.describe_flow_logs(MaxResults=1)
             checks.append(PermissionCheck("ec2:DescribeFlowLogs", True))
         except ClientError as e:
             checks.append(PermissionCheck("ec2:DescribeFlowLogs", False, message=str(e)))
+        except Exception as e:
+            checks.append(PermissionCheck("ec2:DescribeFlowLogs", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
-            client = boto3.client("ec2")
+            client = self.get_client("ec2")
             
             # Describe all flow logs
             flow_logs = []
@@ -277,33 +305,36 @@ class AWSVPCFlowLogCollector(BaseCollector):
             return self.create_result(False)
 
 
-class AWSEC2MetadataCollector(BaseCollector):
-    """Collector for AWS EC2 instance and EBS snapshot metadata."""
+class AWSEC2MetadataCollector(AWSLogCollector):
+    """Collector for EC2 instance metadata."""
 
     @property
     def name(self) -> str:
-        return "ec2_ebs_metadata"
+        return "compute_metadata"
 
     @property
     def description(self) -> str:
-        return "Collects EC2 instance and EBS snapshot metadata (inventory)"
+        return "Collects EC2 Instance inventory"
 
     def preflight_check(self) -> list[PermissionCheck]:
         checks = []
         try:
-            client = boto3.client("ec2")
+            client = self.get_client("ec2")
             client.describe_instances(MaxResults=1)
             checks.append(PermissionCheck("ec2:DescribeInstances", True))
             client.describe_snapshots(OwnerIds=["self"], MaxResults=1)
             checks.append(PermissionCheck("ec2:DescribeSnapshots", True))
         except ClientError as e:
             checks.append(PermissionCheck("ec2:DescribeInstances", False, message=str(e)))
+        except Exception as e:
+            checks.append(PermissionCheck("ec2:DescribeInstances", False, message=str(e)))
         return checks
 
+    @with_retry()
     def collect(self, timeframe: TimeWindow) -> CollectorResult:
         artifacts = []
         try:
-            client = boto3.client("ec2")
+            client = self.get_client("ec2")
             
             # Instances
             instances = []

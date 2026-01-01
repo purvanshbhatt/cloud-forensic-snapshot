@@ -32,7 +32,8 @@ env.bak/
 venv.bak/
 
 # Project Specific
-private_server/
+# private_server/ (Committed for distribution)
 forensic_snapshot/
+forensic_snapshot_ir_test/
 config.yaml
 *.log
